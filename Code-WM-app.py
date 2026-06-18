@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
+import random
 
 # 1. Page Configuration & UI-Styling
 st.set_page_config(
@@ -9,7 +10,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Visuelles High-End-Tuning via CSS
+# Visuelles High-End-Tuning via CSS (Optimierte Kontraste für bessere Lesbarkeit)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap');
@@ -24,22 +25,43 @@ st.markdown("""
         margin-bottom: 35px;
     }
     .group-card {
-        background: rgba(30, 41, 59, 0.7);
+        background: rgba(15, 23, 42, 0.85); /* Dunklerer Hintergrund für besseren Kontrast */
         backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
         padding: 20px;
         border-radius: 16px;
         margin-bottom: 20px;
     }
     .match-strip {
-        background: #1e293b;
+        background: #0f172a; /* Maximaler Kontrast im Vergleich zu grau */
         padding: 12px 16px;
         border-radius: 10px;
         margin: 6px 0;
-        border-left: 4px solid #06b6d4;
+        border-left: 4px solid #38bdf8;
         display: flex;
         justify-content: space-between;
         align-items: center;
+        color: #cbd5e1; /* Helle, gut lesbare Textfarbe für die Teams */
+    }
+    .match-strip b {
+        color: #38bdf8; /* Leuchtendes Cyan für die Tor-Ergebnisse */
+        font-size: 1.1rem;
+    }
+    .ko-box {
+        background: #0f172a; 
+        padding: 12px; 
+        border-radius: 12px; 
+        margin-bottom: 8px; 
+        color: #e2e8f0;
+    }
+    .ko-box small {
+        color: #94a3b8;
+    }
+    .ko-box b {
+        color: #ffffff;
+    }
+    .ko-box .highlight-winner {
+        color: #38bdf8;
     }
     .mvp-badge {
         background: linear-gradient(90deg, #b45309 0%, #d97706 100%);
@@ -129,19 +151,13 @@ def get_world_cup_2026_data():
 
 teams_db = get_world_cup_2026_data()
 
-# 3. Poisson Simulations-Logik
+# 3. Optimierte Poisson Simulations-Logik für dynamischere Ergebnisse
 def simuliere_spiel(t1, t2, ko=False):
-    t1_lambda = teams_db[t1]["angriff"] * teams_db[t2]["abwehr"]
-    t2_lambda = teams_db[t2]["angriff"] * teams_db[t1]["abwehr"]
+    t1_lambda = max(0.1, teams_db[t1]["angriff"] * teams_db[t2]["abwehr"])
+    t2_lambda = max(0.1, teams_db[t2]["angriff"] * teams_db[t1]["abwehr"])
     
-    sim_t1 = np.random.poisson(t1_lambda, 5000)
-    sim_t2 = np.random.poisson(t2_lambda, 5000)
-    
-    t1_win_p = np.sum(sim_t1 > sim_t2) / 5000 * 100
-    t2_win_p = np.sum(sim_t2 > sim_t1) / 5000 * 100
-    
-    goals_t1 = int(round(np.mean(sim_t1)))
-    goals_t2 = int(round(np.mean(sim_t2)))
+    goals_t1 = np.random.poisson(t1_lambda)
+    goals_t2 = np.random.poisson(t2_lambda)
     
     if ko and goals_t1 == goals_t2:
         if np.random.rand() > 0.5: goals_t1 += 1
@@ -149,7 +165,6 @@ def simuliere_spiel(t1, t2, ko=False):
         
     return {
         "score1": goals_t1, "score2": goals_t2,
-        "p1": round(t1_win_p, 1), "p2": round(t2_win_p, 1),
         "winner": t1 if goals_t1 > goals_t2 else t2
     }
 
@@ -184,9 +199,8 @@ with tab2:
         groups = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"]
         
         all_group_tables = {}
-        
-        # Grid-Layout für die 12 Gruppen
         cols = st.columns(3)
+        
         for idx, g in enumerate(groups):
             current_col = cols[idx % 3]
             g_teams = [t for t, v in teams_db.items() if v["gruppe"] == g]
@@ -196,13 +210,11 @@ with tab2:
             with current_col:
                 st.markdown(f"<div class='group-card'><h3>Gruppe {g}</h3>", unsafe_allow_html=True)
                 
-                # Jeder gegen jeden
                 for i in range(len(g_teams)):
                     for j in range(i + 1, len(g_teams)):
                         t1, t2 = g_teams[i], g_teams[j]
                         res = simuliere_spiel(t1, t2, ko=False)
                         
-                        # Punktevergabe
                         if res["score1"] > res["score2"]: punkte[t1] += 3
                         elif res["score2"] > res["score1"]: punkte[t2] += 3
                         else:
@@ -214,34 +226,44 @@ with tab2:
                         
                         st.markdown(f"<div class='match-strip'><span>{t1} - {t2}</span> <b>{res['score1']}:{res['score2']}</b></div>", unsafe_allow_html=True)
                 
-                # Tabelle berechnen
                 tabelle = sorted(g_teams, key=lambda x: (punkte[x], tordifferenz[x]), reverse=True)
-                all_group_tables[g] = {"tabelle": tabelle, "punkte": punkte}
+                all_group_tables[g] = {"tabelle": tabelle, "punkte": punkte, "tordifferenz": tordifferenz}
                 st.markdown("</div>", unsafe_allow_html=True)
 
-        # Qualifikanten ermitteln (Top 2 + 8 beste Dritte)
-        ko_32_teams = []
+        # --- QUALIFIKANTEN ERMITTELN ---
+        gruppenerste = []
+        gruppenzweite = []
         drittplatzierte = []
         
         for g in groups:
             tab = all_group_tables[g]["tabelle"]
-            pts = all_group_tables[g]["punkte"]
-            ko_32_teams.append(tab[0]) # 1. Platz
-            ko_32_teams.append(tab[1]) # 2. Platz
-            drittplatzierte.append((tab[2], pts[tab[2]])) # 3. Platz mit Punkten
+            gruppenerste.append(tab[0])
+            gruppenzweite.append(tab[1])
+            drittplatzierte.append({
+                "team": tab[2], 
+                "punkte": all_group_tables[g]["punkte"][tab[2]], 
+                "td": all_group_tables[g]["tordifferenz"][tab[2]]
+            })
             
-        # Sortiere beste Dritte aus
-        beste_dritte = sorted(drittplatzierte, key=lambda x: x[1], reverse=True)[:8]
-        for t, p in beste_dritte:
-            ko_32_teams.append(t)
+        beste_dritte_sorted = sorted(drittplatzierte, key=lambda x: (x["punkte"], x["td"]), reverse=True)[:8]
+        beste_dritte_teams = [x["team"] for x in beste_dritte_sorted]
 
-        # --- SECHZEHNTELFINALE (Round of 32) ---
+        random.shuffle(gruppenzweite)
+        random.shuffle(beste_dritte_teams)
+        
+        ko_32_teams = []
+        top_pool = gruppenerste + gruppenzweite[:4]
+        rest_pool = beste_dritte_teams + gruppenzweite[4:]
+        
+        for t1, t2 in zip(top_pool, rest_pool):
+            ko_32_teams.extend([t1, t2])
+
+        # --- SECHZEHNTELFINALE & WEITER ---
         st.write("---")
         st.header("📉 K-o.-Phase (Der Turnierbaum ab Runde der letzten 32)")
         
         col_r32, col_r16, col_vf, col_hf, col_f = st.columns(5)
         
-        # Hilfsfunktion für sauberes Rendering im Baum
         def run_stage(team_list, column, stage_title, color):
             winners = []
             with column:
@@ -251,20 +273,18 @@ with tab2:
                     res = simuliere_spiel(t1, t2, ko=True)
                     winners.append(res["winner"])
                     st.markdown(f"""
-                        <div style='background:#1e293b; padding:10px; border-radius:12px; margin-bottom:8px; border-left:4px solid {color};'>
+                        <div class='ko-box' style='border-left: 4px solid {color};'>
                             <small>{t1} vs {t2}</small><br>
-                            <b>{res['score1']}:{res['score2']}</b> ➔ <b>{res['winner']}</b>
+                            <b>{res['score1']}:{res['score2']}</b> ➔ <b class='highlight-winner'>{res['winner']}</b>
                         </div>
                     """, unsafe_allow_html=True)
             return winners
 
-        # Durchführung aller K-o.-Runden
         r16_teams = run_stage(ko_32_teams, col_r32, "💥 Runde von 32", "#a855f7")
         vf_teams = run_stage(r16_teams, col_r16, "⚡ Achtelfinale", "#ec4899")
         hf_teams = run_stage(vf_teams, col_vf, "⚔️ Viertelfinale", "#f43f5e")
         final_teams = run_stage(hf_teams, col_hf, "🛡️ Halbfinale", "#eab308")
         
-        # Finale & Siegerehrung
         with col_f:
             st.subheader("👑 Finale")
             f_res = simuliere_spiel(final_teams[0], final_teams[1], ko=True)
